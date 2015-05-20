@@ -8,12 +8,14 @@ import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
-import java.util.SortedSet;
-import java.util.TreeSet;
 
 import javax.swing.JOptionPane;
 
@@ -31,9 +33,13 @@ public class Agent extends jade.core.Agent {
 	private Map<String, AID>  teamMasters = new HashMap<String, AID>();
 	private Map<AID, Integer> costs = new HashMap<AID, Integer>();
 	private Map<AID, Integer> meetingLength = new HashMap<AID, Integer>();
+	private Map<AID, Integer> priority = new HashMap<AID, Integer>();
+	
+	private AID parent;
+	private AID child;
 	
 	private enum State {
-		INIT, MEETING_GATHERING, COST_PROPAGATION, COST_GATHERING, BUILD_DFS_PREAMBLE;
+		INIT, MEETING_GATHERING, COST_PROPAGATION, COST_GATHERING, BUILD_DFS, ADOPT;
 	}
 	
 	@Override
@@ -116,10 +122,10 @@ public class Agent extends jade.core.Agent {
 			
 			private State state = State.INIT;
 			private Set<AID> others = new HashSet<AID>();
+			private Integer rand = (int)Math.floor(Math.random()*100);
 			
 			@Override
 			public void action() {
-				// TODO Auto-generated method stub
 				System.out.println("["+myAgent.getLocalName()+"] STATE = " + state.toString());
 				
 				switch (state) {
@@ -158,6 +164,14 @@ public class Agent extends jade.core.Agent {
 			        	System.out.println("["+getLocalName()+"] SENDING MEETING MESSAGES");
 			        	myAgent.send(msg);
 			        	state = State.MEETING_GATHERING;
+			        	
+			        	ACLMessage ordMsg = new ACLMessage(ACLMessage.INFORM);
+			        	for(DFAgentDescription result : results){
+			        		ordMsg.addReceiver(result.getName());
+			        	}
+			        	ordMsg.setConversationId(State.BUILD_DFS.toString());
+			        	ordMsg.setContent(rand.toString());
+			        	myAgent.send(ordMsg);
 			        } catch (FIPAException fe) {
 			        	fe.printStackTrace();
 			        }
@@ -270,7 +284,7 @@ public class Agent extends jade.core.Agent {
 					break;
 				case COST_GATHERING:
 					if(others.isEmpty()){
-						state = State.BUILD_DFS_PREAMBLE;
+						state = State.BUILD_DFS;
 						break;
 					}
 					
@@ -284,8 +298,43 @@ public class Agent extends jade.core.Agent {
 						block();
 					}
 					break;
-				case BUILD_DFS_PREAMBLE:
-					//TODO
+				case BUILD_DFS:
+					List<Integer> priorityArr = new ArrayList<Integer>();
+					priorityArr.addAll(priority.values());
+					Collections.sort(priorityArr);
+					Collections.reverse(priorityArr);
+					
+					AID[] agentOrd = new AID[priority.keySet().size()];
+					
+					int j=0;
+					for(int i=0; i<priorityArr.size(); i++){
+						int curr=priorityArr.get(i);
+						for(Entry<AID, Integer> val : priority.entrySet()){
+							if(val.getValue().equals(curr)){
+								agentOrd[j] = val.getKey();
+								j++;
+							}
+						}
+					}
+					
+					for(int i=0; i<agentOrd.length; i++){
+						if(agentOrd[i].equals(myAgent.getAID())){
+							if(i==0){
+								Agent.this.parent = null;
+								Agent.this.child = agentOrd[i+1];
+							} else if(i==agentOrd.length-1) {
+								Agent.this.parent = agentOrd[i-1];
+								Agent.this.child = null;
+							} else {
+								Agent.this.parent = agentOrd[i-1];
+								Agent.this.child = agentOrd[i+1];
+							}
+						}
+					}
+					state = State.ADOPT;
+					break;
+				case ADOPT:
+					//TODO implement ADOPT
 					break;
 				}
 			}
@@ -329,6 +378,28 @@ public class Agent extends jade.core.Agent {
 			        } catch (FIPAException fe) {
 			        	fe.printStackTrace();
 			        }
+				} else {
+					block();
+				}
+			}
+		});
+		
+		//Ordering messages
+		addBehaviour(new CyclicBehaviour() {
+			
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = -1923071880159548411L;
+
+			@Override
+			public void action() {
+				ACLMessage msg = myAgent.receive(
+						MessageTemplate.and(
+								MessageTemplate.MatchPerformative(ACLMessage.INFORM), 
+								MessageTemplate.MatchConversationId(State.BUILD_DFS.toString())));
+				if (msg != null){
+					priority.put(msg.getSender(), Integer.valueOf(msg.getContent()));
 				} else {
 					block();
 				}
