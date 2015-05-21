@@ -223,7 +223,7 @@ public class Agent extends jade.core.Agent {
 					break;
 				case COST_PROPAGATION:
 					if(!otherTeams.isEmpty()){
-						if(mainTeam != null && costs.get(myAgent.getAID()) != null) {
+						if(mainTeam != null) {
 							for(String otherTeam: otherTeams){
 								DFAgentDescription template1 = new DFAgentDescription();
 						        ServiceDescription sd1 = new ServiceDescription();
@@ -360,14 +360,13 @@ public class Agent extends jade.core.Agent {
 					state = State.ADOPT;
 					break;
 				case ADOPT:
-					backTrack();
 					break;
 				}
 			}
 			
 			@Override
 			public boolean done() {
-				return (state == State.ADOPT);
+				return (state.equals(State.ADOPT));
 			}
 		});
 		
@@ -448,13 +447,14 @@ public class Agent extends jade.core.Agent {
 					if(!terminate){
 						currentContext.put(msg.getSender(), Integer.valueOf(msg.getContent()));
 						checkIncompatiblity();
-					}
-					double tmpUB = UB();
-					double tmpLB = LB();
-					if(threshold>tmpUB){
-						threshold = tmpUB;
-					} else if(threshold<tmpLB) {
-						threshold = tmpLB;
+						double tmpUB = UB();
+						double tmpLB = LB();
+						if(threshold>tmpUB){
+							threshold = tmpUB;
+						} else if(threshold<tmpLB) {
+							threshold = tmpLB;
+						}
+						backTrack();
 					}
 				} else {
 					block();
@@ -480,6 +480,9 @@ public class Agent extends jade.core.Agent {
 					String[] contextFields = contents[3].split(",");
 					Map<AID,Integer> ctxMsg = new HashMap<AID,Integer>();
 					for(String contextField:contextFields){
+						if(contextField==null || contextField.isEmpty()){
+							break;
+						}
 						String[] parts = contextField.split(":");
 						try {
 							AID aid = (AID) fromString(parts[0]);
@@ -516,6 +519,7 @@ public class Agent extends jade.core.Agent {
 						threshold = tmpLB;
 					}
 					checkChildThresholdInvariant();
+					backTrack();
 				} else {
 					block();
 				}
@@ -537,6 +541,7 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchConversationId("TERMINATE")));
 				if (msg != null){
 					terminate = true;
+					backTrack();
 				} else {
 					block();
 				}
@@ -561,6 +566,9 @@ public class Agent extends jade.core.Agent {
 					String[] contextFields = contents[1].split(",");
 					Map<AID,Integer> context = new HashMap<AID,Integer>();
 					for(String contextField:contextFields){
+						if(contextField==null || contextField.isEmpty()){
+							break;
+						}
 						String[] parts = contextField.split(":");
 						try {
 							AID aid = (AID) fromString(parts[0]);
@@ -575,13 +583,14 @@ public class Agent extends jade.core.Agent {
 					Double msgT = Double.valueOf(contents[0]);
 					if(isCompatibleWithCurrentContext(context)){
 						threshold = msgT;
-					}
-					double tmpUB = UB();
-					double tmpLB = LB();
-					if(threshold>tmpUB){
-						threshold = tmpUB;
-					} else if(threshold<tmpLB) {
-						threshold = tmpLB;
+						double tmpUB = UB();
+						double tmpLB = LB();
+						if(threshold>tmpUB){
+							threshold = tmpUB;
+						} else if(threshold<tmpLB) {
+							threshold = tmpLB;
+						}
+						backTrack();
 					}
 				} else {
 					block();
@@ -601,7 +610,7 @@ public class Agent extends jade.core.Agent {
 	}
 	
 	private void backTrack(){
-		if(threshold==UB()){
+		if(threshold.equals(UB())){
 			UBUpdate();
 		} else if(LBnow() > threshold) {
 			LB();
@@ -618,25 +627,16 @@ public class Agent extends jade.core.Agent {
 		
 		mantainAllocationInvariant();
 		
-		if(threshold==UB()){
+		if(threshold.equals(UB())){
 			if(terminate || parent == null){
 				ACLMessage termMsg = new ACLMessage(ACLMessage.PROPAGATE);
 				termMsg.setConversationId("TERMINATE");
 				termMsg.addReceiver(child);
 				send(termMsg);
 				terminate = true;
-				StringBuilder out = new StringBuilder();
-				Map<AID, String> lookup = new HashMap<AID, String>();
-				for(Entry<String,AID> e:teamMasters.entrySet()){
-					lookup.put(e.getValue(), e.getKey());
-				}
-				for(Entry<AID, Integer> c:currentContext.entrySet()){
-					out.append("\n"+lookup.get(c.getKey())+": "+c.getValue().toString()+".00 - "+Integer.toString(c.getValue()+meetingLength.get(c.getKey()))+".00\n");
-				}
-				JOptionPane.showMessageDialog(null, "MEETING SCHEDULING:\n"+out.toString());
 			}
 		}
-		if(!terminate || parent != null){
+		if(!terminate && parent != null){
 			ACLMessage cost = new ACLMessage(ACLMessage.PROPAGATE);
 			cost.addReceiver(parent);
 			StringBuilder ctxSerial = new StringBuilder();
@@ -655,11 +655,17 @@ public class Agent extends jade.core.Agent {
 			cost.setConversationId("COST");
 			send(cost);
 		}
+		if(terminate){
+			//TODO Termination signalation
+		}
 	}
 
 	private void checkIncompatiblity(){
 		for(int i=8; i<18; i++){
 			Map<AID, Integer> varContext = context.get(i);
+			if(varContext == null){
+				break;
+			}
 			for(Entry<AID, Integer> e: varContext.entrySet()){
 				if(currentContext.containsKey(e.getKey()) && currentContext.get(e.getKey())!=e.getValue()){
 					//Context Invalidate
@@ -699,10 +705,10 @@ public class Agent extends jade.core.Agent {
 
 	private void checkChildThresholdInvariant(){
 		for(int i=8; i<18; i++){
-			if(lb.get(i)>t.get(i)){
+			if(lb.get(i) != null && t.get(i) !=null && lb.get(i)>t.get(i)){
 				t.put(i,t.get(i)+1);
 			}
-			if(ub.get(i)<t.get(i)){
+			if(ub.get(i) != null && t.get(i) !=null && ub.get(i)<t.get(i)){
 				t.put(i,t.get(i)-1);
 			}
 		}
@@ -713,7 +719,9 @@ public class Agent extends jade.core.Agent {
 		for(Entry<AID, Integer> e: currentContext.entrySet()){
 			count+=constraint(meetingStart, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
 		}
-		count+=t.get(meetingStart);
+		if(child!=null){
+			count+=t.get(meetingStart);
+		}
 		return count;
 	}
 	
@@ -724,8 +732,10 @@ public class Agent extends jade.core.Agent {
 				array[i-8]+=constraint(i, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
 			}
 		}
-		for(int i=8; i<18; i++){
-			array[i-8]+=lb.get(i);
+		if(child!=null){
+			for(int i=8; i<18; i++){
+				array[i-8]+=lb.get(i);
+			}
 		}
 		Double min= array[0];
 		int d = 0;
@@ -747,7 +757,9 @@ public class Agent extends jade.core.Agent {
 		for(Entry<AID, Integer> e: currentContext.entrySet()){
 			count+=constraint(meetingStart, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
 		}
-		count+=lb.get(meetingStart);
+		if(child!=null){
+			count+=lb.get(meetingStart);
+		}
 		return count;
 	}
 	
@@ -758,8 +770,10 @@ public class Agent extends jade.core.Agent {
 				array[i-8]+=constraint(i, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
 			}
 		}
-		for(int i=8; i<18; i++){
-			array[i-8]+=ub.get(i);
+		if(child!=null){
+			for(int i=8; i<18; i++){
+				array[i-8]+=ub.get(i);
+			}
 		}
 		Double min= array[0];
 		for(int i=1; i<10; i++){
@@ -778,8 +792,10 @@ public class Agent extends jade.core.Agent {
 				array[i-8]+=constraint(i, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
 			}
 		}
-		for(int i=8; i<18; i++){
-			array[i-8]+=ub.get(i);
+		if(child!=null){
+			for(int i=8; i<18; i++){
+				array[i-8]+=ub.get(i);
+			}
 		}
 		Double min= array[0];
 		int d = 0;
