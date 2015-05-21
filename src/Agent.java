@@ -8,8 +8,10 @@ import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -45,7 +47,7 @@ public class Agent extends jade.core.Agent {
 	private Map<Integer, Double> lb = new HashMap<Integer, Double>();
 	private Map<Integer, Double> ub = new HashMap<Integer, Double>();
 	private Map<Integer, Double> t  = new HashMap<Integer, Double>();
-	private Map<Integer, HashMap<AID, Integer>> context = new HashMap<Integer, HashMap<AID,Integer>>();
+	private Map<Integer, Map<AID, Integer>> context = new HashMap<Integer, Map<AID,Integer>>();
 	
 	private AID parent;
 	private AID child;
@@ -474,11 +476,38 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
 								MessageTemplate.MatchConversationId("COST")));
 				if (msg != null){
+					String[] contents = msg.getContent().split(";",4);
+					String[] contextFields = contents[3].split(",");
+					Map<AID,Integer> ctxMsg = new HashMap<AID,Integer>();
+					for(String contextField:contextFields){
+						String[] parts = contextField.split(":");
+						try {
+							AID aid = (AID) fromString(parts[0]);
+							Integer val = Integer.valueOf(parts[1]);
+							ctxMsg.put(aid, val);
+						} catch (ClassNotFoundException e) {
+							e.printStackTrace();
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+					Double lbMsg = Double.valueOf(contents[1]);
+					Double ubMsg = Double.valueOf(contents[2]);
+					Integer dCtx = ctxMsg.get(myAgent.getAID());
+					ctxMsg.remove(myAgent.getAID());
 					if(!terminate){
-						//TODO update non-neighbour context
+						for(Entry<AID, Integer> c:ctxMsg.entrySet()){
+							if(!costs.containsKey(c.getKey())){
+								currentContext.put(c.getKey(), c.getValue());
+							}
+						}
 						checkIncompatiblity();
 					}
-					//TODO update lowerbound and upperbound tracks
+					if(isCompatibleWithCurrentContext(ctxMsg)){
+						lb.put(dCtx, lbMsg);
+						ub.put(dCtx, ubMsg);
+						context.put(dCtx, ctxMsg);
+					}
 					double tmpUB = UB();
 					double tmpLB = LB();
 					if(threshold>tmpUB){
@@ -528,7 +557,25 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
 								MessageTemplate.MatchConversationId("THRESHOLD")));
 				if (msg != null){
-					//TODO implement threshold procedure
+					String[] contents = msg.getContent().split(";",2);
+					String[] contextFields = contents[1].split(",");
+					Map<AID,Integer> context = new HashMap<AID,Integer>();
+					for(String contextField:contextFields){
+						String[] parts = contextField.split(":");
+						try {
+							AID aid = (AID) fromString(parts[0]);
+							Integer val = Integer.valueOf(parts[1]);
+							context.put(aid, val);
+						} catch (ClassNotFoundException e) {
+							e.printStackTrace();
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+					Double msgT = Double.valueOf(contents[0]);
+					if(isCompatibleWithCurrentContext(context)){
+						threshold = msgT;
+					}
 					double tmpUB = UB();
 					double tmpLB = LB();
 					if(threshold>tmpUB){
@@ -541,6 +588,16 @@ public class Agent extends jade.core.Agent {
 				}
 			}
 		});
+	}
+	
+	private boolean isCompatibleWithCurrentContext(Map<AID,Integer> ctx){
+		for(Entry<AID, Integer> entry: ctx.entrySet()){
+			Integer value = currentContext.get(entry.getKey());
+			if(value!=null && !value.equals(entry.getValue()))
+				return false;
+		}
+		
+		return true;
 	}
 	
 	private void backTrack(){
@@ -568,6 +625,15 @@ public class Agent extends jade.core.Agent {
 				termMsg.addReceiver(child);
 				send(termMsg);
 				terminate = true;
+				StringBuilder out = new StringBuilder();
+				Map<AID, String> lookup = new HashMap<AID, String>();
+				for(Entry<String,AID> e:teamMasters.entrySet()){
+					lookup.put(e.getValue(), e.getKey());
+				}
+				for(Entry<AID, Integer> c:currentContext.entrySet()){
+					out.append("\n"+lookup.get(c.getKey())+": "+c.getValue().toString()+".00 - "+Integer.toString(c.getValue()+meetingLength.get(c.getKey()))+".00\n");
+				}
+				JOptionPane.showMessageDialog(null, "MEETING SCHEDULING:\n"+out.toString());
 			}
 		}
 		if(!terminate || parent != null){
@@ -593,7 +659,7 @@ public class Agent extends jade.core.Agent {
 
 	private void checkIncompatiblity(){
 		for(int i=8; i<18; i++){
-			HashMap<AID, Integer> varContext = context.get(i);
+			Map<AID, Integer> varContext = context.get(i);
 			for(Entry<AID, Integer> e: varContext.entrySet()){
 				if(currentContext.containsKey(e.getKey()) && currentContext.get(e.getKey())!=e.getValue()){
 					//Context Invalidate
@@ -607,11 +673,48 @@ public class Agent extends jade.core.Agent {
 	}
 
 	private void mantainAllocationInvariant(){
-		//TODO
+		if(threshold>Tnow()){
+			t.put(meetingStart, t.get(meetingStart)+1);
+		} else if(threshold<Tnow()){
+			t.put(meetingStart, t.get(meetingStart)-1);
+		}
+		ACLMessage msg = new ACLMessage(ACLMessage.PROPAGATE);
+		msg.setConversationId("THRESHOLD");
+		msg.addReceiver(child);
+		StringBuilder ctxSerial = new StringBuilder();
+		for(Entry<AID, Integer> ctx:currentContext.entrySet()){
+			if(ctxSerial.length()!=0){
+				ctxSerial.append(",");
+			}
+			try {
+				ctxSerial.append(Agent.toString(ctx.getKey()));
+			} catch (IOException e1) {
+				e1.printStackTrace();
+			}
+			ctxSerial.append(":"+Integer.valueOf(ctx.getValue()));
+		}
+		msg.setContent(t.get(meetingStart)+";"+ctxSerial.toString());
+		send(msg);
 	}
 
 	private void checkChildThresholdInvariant(){
-		//TODO
+		for(int i=8; i<18; i++){
+			if(lb.get(i)>t.get(i)){
+				t.put(i,t.get(i)+1);
+			}
+			if(ub.get(i)<t.get(i)){
+				t.put(i,t.get(i)-1);
+			}
+		}
+	}
+	
+	private Double Tnow(){
+		double count = 0;
+		for(Entry<AID, Integer> e: currentContext.entrySet()){
+			count+=constraint(meetingStart, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
+		}
+		count+=t.get(meetingStart);
+		return count;
 	}
 	
 	private Double LB(){
@@ -704,10 +807,14 @@ public class Agent extends jade.core.Agent {
 	    oos.close();
 	    return Base64.getEncoder().encodeToString(baos.toByteArray()); 
 	}
-
-	@Override
-	protected void takeDown() {
-		// TODO Auto-generated method stub
-		super.takeDown();
-	}
+	
+	   private static Object fromString( String s ) throws IOException ,
+       ClassNotFoundException {
+		   byte [] data = Base64.getDecoder().decode( s );
+		   ObjectInputStream ois = new ObjectInputStream( 
+				   new ByteArrayInputStream(  data ) );
+		   Object o  = ois.readObject();
+		   ois.close();
+		   return o;
+	   }
 }
