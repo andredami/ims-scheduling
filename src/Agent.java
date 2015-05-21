@@ -8,7 +8,12 @@ import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,11 +40,20 @@ public class Agent extends jade.core.Agent {
 	private Map<AID, Integer> meetingLength = new HashMap<AID, Integer>();
 	private Map<AID, Integer> priority = new HashMap<AID, Integer>();
 	
+	private Double threshold = 0.0;
+	private Map<AID, Integer> currentContext = new HashMap<AID, Integer>();
+	private Map<Integer, Double> lb = new HashMap<Integer, Double>();
+	private Map<Integer, Double> ub = new HashMap<Integer, Double>();
+	private Map<Integer, Double> t  = new HashMap<Integer, Double>();
+	private Map<Integer, HashMap<AID, Integer>> context = new HashMap<Integer, HashMap<AID,Integer>>();
+	
 	private AID parent;
 	private AID child;
 	
+	private Boolean terminate = false;
+	
 	private enum State {
-		INIT, MEETING_GATHERING, COST_PROPAGATION, COST_GATHERING, BUILD_DFS, ADOPT;
+		INIT, MEETING_GATHERING, COST_PROPAGATION, COST_GATHERING, BUILD_DFS, ADOPT_INIT, ADOPT;
 	}
 	
 	@Override
@@ -331,18 +345,27 @@ public class Agent extends jade.core.Agent {
 							}
 						}
 					}
+					state = State.ADOPT_INIT;
+					break;
+				case ADOPT_INIT:
+					for(int i=8; i<18; i++){
+						lb.put(i, 0.0);
+						ub.put(i, Double.POSITIVE_INFINITY);
+						t.put(i, 0.0);
+						context.put(i, new HashMap<AID, Integer>());
+					}
+					backTrack();
 					state = State.ADOPT;
 					break;
 				case ADOPT:
-					//TODO implement ADOPT
+					backTrack();
 					break;
 				}
 			}
 			
 			@Override
 			public boolean done() {
-				// TODO Auto-generated method stub
-				return false;
+				return (state == State.ADOPT);
 			}
 		});
 		
@@ -405,8 +428,283 @@ public class Agent extends jade.core.Agent {
 				}
 			}
 		});
+		
+		addBehaviour(new CyclicBehaviour() {
+			
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = -1923071880159548411L;
+
+			@Override
+			public void action() {
+				ACLMessage msg = myAgent.receive(
+						MessageTemplate.and(
+								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
+								MessageTemplate.MatchConversationId("VALUE")));
+				if (msg != null){
+					if(!terminate){
+						currentContext.put(msg.getSender(), Integer.valueOf(msg.getContent()));
+						checkIncompatiblity();
+					}
+					double tmpUB = UB();
+					double tmpLB = LB();
+					if(threshold>tmpUB){
+						threshold = tmpUB;
+					} else if(threshold<tmpLB) {
+						threshold = tmpLB;
+					}
+				} else {
+					block();
+				}
+			}
+		});
+		
+		addBehaviour(new CyclicBehaviour() {
+			
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = -1923071880159548411L;
+
+			@Override
+			public void action() {
+				ACLMessage msg = myAgent.receive(
+						MessageTemplate.and(
+								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
+								MessageTemplate.MatchConversationId("COST")));
+				if (msg != null){
+					if(!terminate){
+						//TODO update non-neighbour context
+						checkIncompatiblity();
+					}
+					//TODO update lowerbound and upperbound tracks
+					double tmpUB = UB();
+					double tmpLB = LB();
+					if(threshold>tmpUB){
+						threshold = tmpUB;
+					} else if(threshold<tmpLB) {
+						threshold = tmpLB;
+					}
+					checkChildThresholdInvariant();
+				} else {
+					block();
+				}
+			}
+		});
+		
+		addBehaviour(new CyclicBehaviour() {
+			
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = -1923071880159548411L;
+
+			@Override
+			public void action() {
+				ACLMessage msg = myAgent.receive(
+						MessageTemplate.and(
+								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
+								MessageTemplate.MatchConversationId("TERMINATE")));
+				if (msg != null){
+					terminate = true;
+				} else {
+					block();
+				}
+			}
+		});
+		
+		addBehaviour(new CyclicBehaviour() {
+			
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = -1923071880159548411L;
+
+			@Override
+			public void action() {
+				ACLMessage msg = myAgent.receive(
+						MessageTemplate.and(
+								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
+								MessageTemplate.MatchConversationId("THRESHOLD")));
+				if (msg != null){
+					//TODO implement threshold procedure
+					double tmpUB = UB();
+					double tmpLB = LB();
+					if(threshold>tmpUB){
+						threshold = tmpUB;
+					} else if(threshold<tmpLB) {
+						threshold = tmpLB;
+					}
+				} else {
+					block();
+				}
+			}
+		});
 	}
 	
+	private void backTrack(){
+		if(threshold==UB()){
+			UBUpdate();
+		} else if(LBnow() > threshold) {
+			LB();
+		}
+		ACLMessage value = new ACLMessage(ACLMessage.PROPAGATE);
+		for(Entry<AID,Integer> e: costs.entrySet()){
+			if(priority.get(getAID())>priority.get(e.getKey())){
+				value.addReceiver(e.getKey());
+			}
+		}
+		value.setContent(meetingStart.toString());
+		value.setConversationId("VALUE");
+		send(value);
+		
+		mantainAllocationInvariant();
+		
+		if(threshold==UB()){
+			if(terminate || parent == null){
+				ACLMessage termMsg = new ACLMessage(ACLMessage.PROPAGATE);
+				termMsg.setConversationId("TERMINATE");
+				termMsg.addReceiver(child);
+				send(termMsg);
+				terminate = true;
+			}
+		}
+		if(!terminate || parent != null){
+			ACLMessage cost = new ACLMessage(ACLMessage.PROPAGATE);
+			cost.addReceiver(parent);
+			StringBuilder ctxSerial = new StringBuilder();
+			for(Entry<AID, Integer> ctx:currentContext.entrySet()){
+				if(ctxSerial.length()!=0){
+					ctxSerial.append(",");
+				}
+				try {
+					ctxSerial.append(Agent.toString(ctx.getKey()));
+				} catch (IOException e1) {
+					e1.printStackTrace();
+				}
+				ctxSerial.append(":"+Integer.valueOf(ctx.getValue()));
+			}
+			cost.setContent(meetingStart.toString()+";"+LB().toString()+";"+UB().toString()+";"+ctxSerial.toString());
+			cost.setConversationId("COST");
+			send(cost);
+		}
+	}
+
+	private void checkIncompatiblity(){
+		for(int i=8; i<18; i++){
+			HashMap<AID, Integer> varContext = context.get(i);
+			for(Entry<AID, Integer> e: varContext.entrySet()){
+				if(currentContext.containsKey(e.getKey()) && currentContext.get(e.getKey())!=e.getValue()){
+					//Context Invalidate
+					lb.put(i, 0.0);
+					ub.put(i, Double.POSITIVE_INFINITY);
+					t.put(i, 0.0);
+					context.put(i, new HashMap<AID, Integer>());
+				}
+			}
+		}
+	}
+
+	private void mantainAllocationInvariant(){
+		//TODO
+	}
+
+	private void checkChildThresholdInvariant(){
+		//TODO
+	}
+	
+	private Double LB(){
+		Double[] array = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
+		for(int i=8; i<18; i++){
+			for(Entry<AID, Integer> e: currentContext.entrySet()){
+				array[i-8]+=constraint(i, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
+			}
+		}
+		for(int i=8; i<18; i++){
+			array[i-8]+=lb.get(i);
+		}
+		Double min= array[0];
+		int d = 0;
+		for(int i=1; i<10; i++){
+			if(array[i]<min){
+				min = array[i];
+				d = i;
+			}
+		}
+		if (threshold<min){
+			threshold=min;
+		}
+		meetingStart = d + 8;
+		return min;
+	}
+
+	private Double LBnow(){
+		double count = 0;
+		for(Entry<AID, Integer> e: currentContext.entrySet()){
+			count+=constraint(meetingStart, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
+		}
+		count+=lb.get(meetingStart);
+		return count;
+	}
+	
+	private Double UB(){
+		Double[] array = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
+		for(int i=8; i<18; i++){
+			for(Entry<AID, Integer> e: currentContext.entrySet()){
+				array[i-8]+=constraint(i, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
+			}
+		}
+		for(int i=8; i<18; i++){
+			array[i-8]+=ub.get(i);
+		}
+		Double min= array[0];
+		for(int i=1; i<10; i++){
+			min= array[i]<min?array[i]:min;
+		}
+		if (threshold>min){
+			threshold=min;
+		}
+		return min;
+	}
+	
+	private void UBUpdate(){
+		Double[] array = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
+		for(int i=8; i<18; i++){
+			for(Entry<AID, Integer> e: currentContext.entrySet()){
+				array[i-8]+=constraint(i, meetingLength.get(getAID()), e.getValue(), meetingLength.get(e.getKey()), costs.get(e.getKey()));
+			}
+		}
+		for(int i=8; i<18; i++){
+			array[i-8]+=ub.get(i);
+		}
+		Double min= array[0];
+		int d = 0;
+		for(int i=1; i<10; i++){
+			if(array[i]<min){
+				min = array[i];
+				d = i;
+			}
+		}
+		meetingStart = d + 8;
+	}
+	
+	private Double constraint(Integer x, Integer lx, Integer y, Integer ly, Integer cost){
+		if(x>=y+ly || x+lx<=y){
+			return 0.0;
+		} else {
+			return Double.valueOf(cost);
+		}
+	}
+	
+	private static String toString( Serializable o ) throws IOException {
+	    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+	    ObjectOutputStream oos = new ObjectOutputStream( baos );
+	    oos.writeObject( o );
+	    oos.close();
+	    return Base64.getEncoder().encodeToString(baos.toByteArray()); 
+	}
+
 	@Override
 	protected void takeDown() {
 		// TODO Auto-generated method stub
