@@ -142,131 +142,104 @@ public class Agent extends jade.core.Agent {
 			
 			@Override
 			public void action() {
-				System.out.println("["+myAgent.getLocalName()+"] STATE = " + state.toString());
-				
-				switch (state) {
-				case INIT:
-					MessageTemplate mt = MessageTemplate.and(MessageTemplate.MatchPerformative(ACLMessage.INFORM), MessageTemplate.MatchContent("START"));
-					blockingReceive(mt);
-					System.out.println("["+getLocalName()+"] START MESSAGE RECEIVED");
-					if(mainTeam != null){
-						teamMasters.put(mainTeam, myAgent.getAID());
-					}
-					DFAgentDescription template = new DFAgentDescription();
-			        ServiceDescription sd = new ServiceDescription();
-			        sd.setType("scheduling");
-			        template.addServices(sd);
-			        try {
-			        	DFAgentDescription[] results = DFService.search(myAgent, template);
-			        	for(DFAgentDescription result : results){
-			        		if(!result.getName().equals(myAgent.getAID())){
-			        			others.add(result.getName());
-			        		}
-			        	}
-			        	System.out.println("["+getLocalName()+"] FOUND OTHER AGENTS = " + others.toString());
-			        	ACLMessage msg = new ACLMessage(
-			        			(mainTeam != null && meetingLength.get(myAgent.getAID())!=null)?
-			        					ACLMessage.CONFIRM:
-			        					ACLMessage.CANCEL);
-			        	for(AID agent: others){
-			        		msg.addReceiver(agent);
-			        	}
-			        	msg.setConversationId(State.MEETING_GATHERING.toString());
-			        	if(mainTeam != null && meetingLength.get(myAgent.getAID())!=null) {
-			        		msg.setContent(mainTeam + ":" + meetingLength.get(myAgent.getAID()).toString());
-			        	} else if (mainTeam != null) {
-			        		msg.setContent(mainTeam);
-			        	}
-			        	System.out.println("["+getLocalName()+"] SENDING MEETING MESSAGES");
-			        	myAgent.send(msg);
-			        	state = State.MEETING_GATHERING;
-			        	
-			        	ACLMessage ordMsg = new ACLMessage(ACLMessage.INFORM);
-			        	for(DFAgentDescription result : results){
-			        		ordMsg.addReceiver(result.getName());
-			        	}
-			        	ordMsg.setConversationId(State.BUILD_DFS.toString());
-			        	ordMsg.setContent(rand.toString());
-			        	myAgent.send(ordMsg);
-			        } catch (FIPAException fe) {
-			        	fe.printStackTrace();
-			        }
-					break;
-				case MEETING_GATHERING:
-					if(others.isEmpty()){
-						state = State.COST_PROPAGATION;
-						break;
-					}
+				try {
+					System.out.println("["+myAgent.getLocalName()+"] STATE = " + state.toString());
 					
-					ACLMessage msg = myAgent.receive(
-									MessageTemplate.MatchConversationId(State.MEETING_GATHERING.toString()));
-					if(msg!=null){
-						switch(msg.getPerformative()){
-						case ACLMessage.CONFIRM:
-							String[] content = msg.getContent().split(":");
-							String key = content[0];
-							Integer value = Integer.valueOf(content[1]);
-							teamMasters.put(key, msg.getSender());
-							meetingLength.put(msg.getSender(), value);
-							break;
-						case ACLMessage.CANCEL:
-							if(msg.getContent() != null && !msg.getContent().isEmpty()){
-								teamMasters.put(msg.getContent(), msg.getSender());
-								otherTeams.remove(msg.getContent());
-							}
+					switch (state) {
+					case INIT:
+						MessageTemplate mt = MessageTemplate.and(MessageTemplate.MatchPerformative(ACLMessage.INFORM), MessageTemplate.MatchContent("START"));
+						blockingReceive(mt);
+						System.out.println("["+getLocalName()+"] START MESSAGE RECEIVED");
+						if(mainTeam != null){
+							teamMasters.put(mainTeam, myAgent.getAID());
+						}
+						DFAgentDescription template = new DFAgentDescription();
+					    ServiceDescription sd = new ServiceDescription();
+					    sd.setType("scheduling");
+					    template.addServices(sd);
+					    try {
+					    	DFAgentDescription[] results = DFService.search(myAgent, template);
+					    	for(DFAgentDescription result : results){
+					    		if(!result.getName().equals(myAgent.getAID())){
+					    			others.add(result.getName());
+					    		}
+					    	}
+					    	System.out.println("["+getLocalName()+"] FOUND OTHER AGENTS = " + others.toString());
+					    	ACLMessage msg = new ACLMessage(
+					    			(mainTeam != null && meetingLength.get(myAgent.getAID())!=null)?
+					    					ACLMessage.CONFIRM:
+					    					ACLMessage.CANCEL);
+					    	for(AID agent: others){
+					    		msg.addReceiver(agent);
+					    	}
+					    	msg.setConversationId(State.MEETING_GATHERING.toString());
+					    	if(mainTeam != null && meetingLength.get(myAgent.getAID())!=null) {
+					    		msg.setContent(mainTeam + ":" + meetingLength.get(myAgent.getAID()).toString());
+					    	} else if (mainTeam != null) {
+					    		msg.setContent(mainTeam);
+					    	}
+					    	System.out.println("["+getLocalName()+"] SENDING MEETING MESSAGES");
+					    	myAgent.send(msg);
+					    	state = State.MEETING_GATHERING;
+					    	
+					    	ACLMessage ordMsg = new ACLMessage(ACLMessage.INFORM);
+					    	for(DFAgentDescription result : results){
+					    		ordMsg.addReceiver(result.getName());
+					    	}
+					    	ordMsg.setConversationId(State.BUILD_DFS.toString());
+					    	ordMsg.setContent(rand.toString());
+					    	myAgent.send(ordMsg);
+					    } catch (FIPAException fe) {
+					    	fe.printStackTrace();
+					    }
+						break;
+					case MEETING_GATHERING:
+						if(others.isEmpty()){
+							state = State.COST_PROPAGATION;
 							break;
 						}
-						others.remove(msg.getSender());
-					} else {
-						block();
-					}
-					break;
-				case COST_PROPAGATION:
-					if(!otherTeams.isEmpty()){
-						if(mainTeam != null) {
-							for(String otherTeam: otherTeams){
-								DFAgentDescription template1 = new DFAgentDescription();
-						        ServiceDescription sd1 = new ServiceDescription();
-						        sd1.setType("scheduling");
-						        sd1.setName(otherTeam);
-						        template1.addServices(sd1);
-						        try {
-						        	DFAgentDescription[] results = DFService.search(myAgent, template1);
-						        	if(results.length != 0){
-						        		ACLMessage msg1 = new ACLMessage(ACLMessage.INFORM);
-						        		msg1.addReceiver(results[0].getName());
-						        		msg1.setConversationId(State.COST_PROPAGATION.toString());
-						        		msg1.setContent(mainTeam + ":3");
-						        		myAgent.send(msg1);
-						        		costs.put(results[0].getName(), costs.containsKey(results[0].getName())?costs.get(results[0].getName())+3:3);
-						        	}
-						        } catch (FIPAException fe) {
-						        	fe.printStackTrace();
-						        }
-							}
-						}
-					}
 						
-					if(otherTeams.size() > 1){
-						String[] otAll = new String[otherTeams.size()];
-						otAll = otherTeams.toArray(otAll);
-						for(int i=0; i<otAll.length; i++){
-							String otA = otAll[i];
-							for(int j=0; j<otAll.length; j++){
-								if(i!=j){
-									DFAgentDescription template2 = new DFAgentDescription();
-							        ServiceDescription sd2 = new ServiceDescription();
-							        sd2.setType("scheduling");
-							        sd2.setName(otAll[j]);
-							        template2.addServices(sd2);
+						ACLMessage msg = myAgent.receive(
+										MessageTemplate.MatchConversationId(State.MEETING_GATHERING.toString()));
+						if(msg!=null){
+							switch(msg.getPerformative()){
+							case ACLMessage.CONFIRM:
+								String[] content = msg.getContent().split(":");
+								String key = content[0];
+								Integer value = Integer.valueOf(content[1]);
+								teamMasters.put(key, msg.getSender());
+								meetingLength.put(msg.getSender(), value);
+								break;
+							case ACLMessage.CANCEL:
+								if(msg.getContent() != null && !msg.getContent().isEmpty()){
+									teamMasters.put(msg.getContent(), msg.getSender());
+									otherTeams.remove(msg.getContent());
+								}
+								break;
+							}
+							others.remove(msg.getSender());
+						} else {
+							block();
+						}
+						break;
+					case COST_PROPAGATION:
+						if(!otherTeams.isEmpty()){
+							if(mainTeam != null) {
+								for(String otherTeam: otherTeams){
+									DFAgentDescription template1 = new DFAgentDescription();
+							        ServiceDescription sd1 = new ServiceDescription();
+							        sd1.setType("scheduling");
+							        sd1.setName(otherTeam);
+							        template1.addServices(sd1);
 							        try {
-							        	DFAgentDescription[] results = DFService.search(myAgent, template2);
+							        	DFAgentDescription[] results = DFService.search(myAgent, template1);
 							        	if(results.length != 0){
-							        		ACLMessage msg2 = new ACLMessage(ACLMessage.INFORM);
-							        		msg2.addReceiver(results[0].getName());
-							        		msg2.setConversationId(State.COST_PROPAGATION.toString());
-							        		msg2.setContent(otA + ":1");
-							        		myAgent.send(msg2);
+							        		ACLMessage msg1 = new ACLMessage(ACLMessage.INFORM);
+							        		msg1.addReceiver(results[0].getName());
+							        		msg1.setConversationId(State.COST_PROPAGATION.toString());
+							        		msg1.setContent(mainTeam + ":3");
+							        		myAgent.send(msg1);
+							        		costs.put(results[0].getName(), costs.containsKey(results[0].getName())?costs.get(results[0].getName())+3:3);
 							        	}
 							        } catch (FIPAException fe) {
 							        	fe.printStackTrace();
@@ -274,93 +247,124 @@ public class Agent extends jade.core.Agent {
 								}
 							}
 						}
-					}
-					others = new HashSet<AID>();
-					DFAgentDescription template3 = new DFAgentDescription();
-			        ServiceDescription sd3 = new ServiceDescription();
-			        sd3.setType("scheduling");
-			        template3.addServices(sd3);
-			        try {
-			        	DFAgentDescription[] results = DFService.search(myAgent, template3);
-			        	for(DFAgentDescription result : results){
-			        		if(!result.getName().equals(myAgent.getAID())){
-			        			others.add(result.getName());
-			        		}
-			        	}
-			        	ACLMessage msg3 = new ACLMessage(ACLMessage.CONFIRM);
-			        	for(AID agent: others){
-			        		msg3.addReceiver(agent);
-			        	}
-			        	msg3.setConversationId(State.COST_GATHERING.toString());
-			        	myAgent.send(msg3);
-						state = State.COST_GATHERING;
-			        } catch (FIPAException fe) {
-			        	fe.printStackTrace();
-			        }
-					break;
-				case COST_GATHERING:
-					if(others.isEmpty()){
-						state = State.BUILD_DFS;
+							
+						if(otherTeams.size() > 1){
+							String[] otAll = new String[otherTeams.size()];
+							otAll = otherTeams.toArray(otAll);
+							for(int i=0; i<otAll.length; i++){
+								String otA = otAll[i];
+								for(int j=0; j<otAll.length; j++){
+									if(i!=j){
+										DFAgentDescription template2 = new DFAgentDescription();
+								        ServiceDescription sd2 = new ServiceDescription();
+								        sd2.setType("scheduling");
+								        sd2.setName(otAll[j]);
+								        template2.addServices(sd2);
+								        try {
+								        	DFAgentDescription[] results = DFService.search(myAgent, template2);
+								        	if(results.length != 0){
+								        		ACLMessage msg2 = new ACLMessage(ACLMessage.INFORM);
+								        		msg2.addReceiver(results[0].getName());
+								        		msg2.setConversationId(State.COST_PROPAGATION.toString());
+								        		msg2.setContent(otA + ":1");
+								        		myAgent.send(msg2);
+								        	}
+								        } catch (FIPAException fe) {
+								        	fe.printStackTrace();
+								        }
+									}
+								}
+							}
+						}
+						others = new HashSet<AID>();
+						DFAgentDescription template3 = new DFAgentDescription();
+					    ServiceDescription sd3 = new ServiceDescription();
+					    sd3.setType("scheduling");
+					    template3.addServices(sd3);
+					    try {
+					    	DFAgentDescription[] results = DFService.search(myAgent, template3);
+					    	for(DFAgentDescription result : results){
+					    		if(!result.getName().equals(myAgent.getAID())){
+					    			others.add(result.getName());
+					    		}
+					    	}
+					    	ACLMessage msg3 = new ACLMessage(ACLMessage.CONFIRM);
+					    	for(AID agent: others){
+					    		msg3.addReceiver(agent);
+					    	}
+					    	msg3.setConversationId(State.COST_GATHERING.toString());
+					    	myAgent.send(msg3);
+							state = State.COST_GATHERING;
+					    } catch (FIPAException fe) {
+					    	fe.printStackTrace();
+					    }
+						break;
+					case COST_GATHERING:
+						if(others.isEmpty()){
+							state = State.BUILD_DFS;
+							break;
+						}
+						
+						ACLMessage msg4 = myAgent.receive(
+								MessageTemplate.and(
+										MessageTemplate.MatchPerformative(ACLMessage.CONFIRM), 
+										MessageTemplate.MatchConversationId(State.COST_GATHERING.toString())));
+						if (msg4 != null){
+							others.remove(msg4.getSender());
+						} else {
+							block();
+						}
+						break;
+					case BUILD_DFS:
+						List<Integer> priorityArr = new ArrayList<Integer>();
+						priorityArr.addAll(priority.values());
+						Collections.sort(priorityArr);
+						Collections.reverse(priorityArr);
+						
+						AID[] agentOrd = new AID[priority.keySet().size()];
+						
+						int j=0;
+						for(int i=0; i<priorityArr.size(); i++){
+							int curr=priorityArr.get(i);
+							for(Entry<AID, Integer> val : priority.entrySet()){
+								if(val.getValue().equals(curr)){
+									agentOrd[j] = val.getKey();
+									j++;
+								}
+							}
+						}
+						
+						for(int i=0; i<agentOrd.length; i++){
+							if(agentOrd[i].equals(myAgent.getAID())){
+								if(i==0){
+									Agent.this.parent = null;
+									Agent.this.child = agentOrd[i+1];
+								} else if(i==agentOrd.length-1) {
+									Agent.this.parent = agentOrd[i-1];
+									Agent.this.child = null;
+								} else {
+									Agent.this.parent = agentOrd[i-1];
+									Agent.this.child = agentOrd[i+1];
+								}
+							}
+						}
+						state = State.ADOPT_INIT;
+						break;
+					case ADOPT_INIT:
+						for(int i=8; i<18; i++){
+							lb.put(i, 0.0);
+							ub.put(i, Double.POSITIVE_INFINITY);
+							t.put(i, 0.0);
+							context.put(i, new HashMap<AID, Integer>());
+						}
+						backTrack();
+						state = State.ADOPT;
+						break;
+					case ADOPT:
 						break;
 					}
-					
-					ACLMessage msg4 = myAgent.receive(
-							MessageTemplate.and(
-									MessageTemplate.MatchPerformative(ACLMessage.CONFIRM), 
-									MessageTemplate.MatchConversationId(State.COST_GATHERING.toString())));
-					if (msg4 != null){
-						others.remove(msg4.getSender());
-					} else {
-						block();
-					}
-					break;
-				case BUILD_DFS:
-					List<Integer> priorityArr = new ArrayList<Integer>();
-					priorityArr.addAll(priority.values());
-					Collections.sort(priorityArr);
-					Collections.reverse(priorityArr);
-					
-					AID[] agentOrd = new AID[priority.keySet().size()];
-					
-					int j=0;
-					for(int i=0; i<priorityArr.size(); i++){
-						int curr=priorityArr.get(i);
-						for(Entry<AID, Integer> val : priority.entrySet()){
-							if(val.getValue().equals(curr)){
-								agentOrd[j] = val.getKey();
-								j++;
-							}
-						}
-					}
-					
-					for(int i=0; i<agentOrd.length; i++){
-						if(agentOrd[i].equals(myAgent.getAID())){
-							if(i==0){
-								Agent.this.parent = null;
-								Agent.this.child = agentOrd[i+1];
-							} else if(i==agentOrd.length-1) {
-								Agent.this.parent = agentOrd[i-1];
-								Agent.this.child = null;
-							} else {
-								Agent.this.parent = agentOrd[i-1];
-								Agent.this.child = agentOrd[i+1];
-							}
-						}
-					}
-					state = State.ADOPT_INIT;
-					break;
-				case ADOPT_INIT:
-					for(int i=8; i<18; i++){
-						lb.put(i, 0.0);
-						ub.put(i, Double.POSITIVE_INFINITY);
-						t.put(i, 0.0);
-						context.put(i, new HashMap<AID, Integer>());
-					}
-					backTrack();
-					state = State.ADOPT;
-					break;
-				case ADOPT:
-					break;
+				} catch (Throwable e) {
+					e.printStackTrace();
 				}
 			}
 			
@@ -656,7 +660,32 @@ public class Agent extends jade.core.Agent {
 			send(cost);
 		}
 		if(terminate){
-			//TODO Termination signalation
+			DFAgentDescription template = new DFAgentDescription();
+	        ServiceDescription sd = new ServiceDescription();
+	        sd.setType("scheduling-coord");
+	        sd.setName("START-STOP");
+	        template.addServices(sd);
+	        try {
+	        	DFAgentDescription[] results = DFService.search(this, template);
+	        	if(results.length>0){
+	        		if(mainTeam != null){
+	        			ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+	        			msg.addReceiver(results[0].getName());
+	        			msg.setConversationId("MEET");
+	        			msg.setContent("TEAM "+ mainTeam +"   "+(meetingStart.toString().length()==1?"0"+meetingStart.toString():meetingStart.toString())+":00 - "+(((Integer)(meetingStart+meetingLength.get(getAID()))).toString().length()==1?"0"+((Integer)(meetingStart+meetingLength.get(getAID()))).toString():((Integer)(meetingStart+meetingLength.get(getAID()))).toString())+":00");
+	        			send(msg);
+	        		}
+	        		if(parent == null){
+	        			ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+	        			msg.addReceiver(results[0].getName());
+	        			msg.setConversationId("COST");
+	        			msg.setContent(LB().toString());
+	        			send(msg);
+	        		}
+	        	}
+	        } catch (FIPAException fe) {
+	        	fe.printStackTrace();
+	        }
 		}
 	}
 
