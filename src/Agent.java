@@ -142,7 +142,6 @@ public class Agent extends jade.core.Agent {
 			
 			@Override
 			public void action() {
-				try {
 					System.out.println("["+myAgent.getLocalName()+"] STATE = " + state.toString());
 					
 					switch (state) {
@@ -194,80 +193,57 @@ public class Agent extends jade.core.Agent {
 					    }
 						break;
 					case MEETING_GATHERING:
-						if(others.isEmpty()){
-							state = State.COST_PROPAGATION;
-							break;
-						}
-						
-						ACLMessage msg = myAgent.receive(
-										MessageTemplate.MatchConversationId(State.MEETING_GATHERING.toString()));
-						if(msg!=null){
-							switch(msg.getPerformative()){
-							case ACLMessage.CONFIRM:
-								String[] content = msg.getContent().split(":");
-								String key = content[0];
-								Integer value = Integer.valueOf(content[1]);
-								teamMasters.put(key, msg.getSender());
-								meetingLength.put(msg.getSender(), value);
-								break;
-							case ACLMessage.CANCEL:
-								if(msg.getContent() != null && !msg.getContent().isEmpty()){
-									teamMasters.put(msg.getContent(), msg.getSender());
-									otherTeams.remove(msg.getContent());
-								}
+						try {
+							if(others.isEmpty()){
+								state = State.COST_PROPAGATION;
 								break;
 							}
-							others.remove(msg.getSender());
-						} else {
-							block();
+							
+							ACLMessage msg = myAgent.receive(
+											MessageTemplate.MatchConversationId(State.MEETING_GATHERING.toString()));
+							if(msg!=null){
+								switch(msg.getPerformative()){
+								case ACLMessage.CONFIRM:
+									String[] content = msg.getContent().split(":");
+									String key = content[0];
+									Integer value = Integer.valueOf(content[1]);
+									teamMasters.put(key, msg.getSender());
+									meetingLength.put(msg.getSender(), value);
+									break;
+								case ACLMessage.CANCEL:
+									if(msg.getContent() != null && !msg.getContent().isEmpty()){
+										teamMasters.put(msg.getContent(), msg.getSender());
+										otherTeams.remove(msg.getContent());
+									}
+									break;
+								}
+								others.remove(msg.getSender());
+							} else {
+								block();
+							}
+						} catch (NullPointerException e) {
+							e.printStackTrace();
 						}
 						break;
 					case COST_PROPAGATION:
-						if(!otherTeams.isEmpty()){
-							if(mainTeam != null) {
-								for(String otherTeam: otherTeams){
-									DFAgentDescription template1 = new DFAgentDescription();
-							        ServiceDescription sd1 = new ServiceDescription();
-							        sd1.setType("scheduling");
-							        sd1.setName(otherTeam);
-							        template1.addServices(sd1);
-							        try {
-							        	DFAgentDescription[] results = DFService.search(myAgent, template1);
-							        	if(results.length != 0){
-							        		ACLMessage msg1 = new ACLMessage(ACLMessage.INFORM);
-							        		msg1.addReceiver(results[0].getName());
-							        		msg1.setConversationId(State.COST_PROPAGATION.toString());
-							        		msg1.setContent(mainTeam + ":3");
-							        		myAgent.send(msg1);
-							        		costs.put(results[0].getName(), costs.containsKey(results[0].getName())?costs.get(results[0].getName())+3:3);
-							        	}
-							        } catch (FIPAException fe) {
-							        	fe.printStackTrace();
-							        }
-								}
-							}
-						}
-							
-						if(otherTeams.size() > 1){
-							String[] otAll = new String[otherTeams.size()];
-							otAll = otherTeams.toArray(otAll);
-							for(int i=0; i<otAll.length; i++){
-								String otA = otAll[i];
-								for(int j=0; j<otAll.length; j++){
-									if(i!=j){
-										DFAgentDescription template2 = new DFAgentDescription();
-								        ServiceDescription sd2 = new ServiceDescription();
-								        sd2.setType("scheduling");
-								        sd2.setName(otAll[j]);
-								        template2.addServices(sd2);
+						try {
+							if(!otherTeams.isEmpty()){
+								if(mainTeam != null) {
+									for(String otherTeam: otherTeams){
+										DFAgentDescription template1 = new DFAgentDescription();
+								        ServiceDescription sd1 = new ServiceDescription();
+								        sd1.setType("scheduling");
+								        sd1.setName(otherTeam);
+								        template1.addServices(sd1);
 								        try {
-								        	DFAgentDescription[] results = DFService.search(myAgent, template2);
+								        	DFAgentDescription[] results = DFService.search(myAgent, template1);
 								        	if(results.length != 0){
-								        		ACLMessage msg2 = new ACLMessage(ACLMessage.INFORM);
-								        		msg2.addReceiver(results[0].getName());
-								        		msg2.setConversationId(State.COST_PROPAGATION.toString());
-								        		msg2.setContent(otA + ":1");
-								        		myAgent.send(msg2);
+								        		ACLMessage msg1 = new ACLMessage(ACLMessage.INFORM);
+								        		msg1.addReceiver(results[0].getName());
+								        		msg1.setConversationId(State.COST_PROPAGATION.toString());
+								        		msg1.setContent(mainTeam + ":3");
+								        		myAgent.send(msg1);
+								        		costs.put(results[0].getName(), costs.containsKey(results[0].getName())?costs.get(results[0].getName())+3:3);
 								        	}
 								        } catch (FIPAException fe) {
 								        	fe.printStackTrace();
@@ -275,97 +251,137 @@ public class Agent extends jade.core.Agent {
 									}
 								}
 							}
+								
+							if(otherTeams.size() > 1){
+								String[] otAll = new String[otherTeams.size()];
+								otAll = otherTeams.toArray(otAll);
+								for(int i=0; i<otAll.length; i++){
+									String otA = otAll[i];
+									for(int j=0; j<otAll.length; j++){
+										if(i!=j){
+											DFAgentDescription template2 = new DFAgentDescription();
+									        ServiceDescription sd2 = new ServiceDescription();
+									        sd2.setType("scheduling");
+									        sd2.setName(otAll[j]);
+									        template2.addServices(sd2);
+									        try {
+									        	DFAgentDescription[] results = DFService.search(myAgent, template2);
+									        	if(results.length != 0){
+									        		ACLMessage msg2 = new ACLMessage(ACLMessage.INFORM);
+									        		msg2.addReceiver(results[0].getName());
+									        		msg2.setConversationId(State.COST_PROPAGATION.toString());
+									        		msg2.setContent(otA + ":1");
+									        		myAgent.send(msg2);
+									        	}
+									        } catch (FIPAException fe) {
+									        	fe.printStackTrace();
+									        }
+										}
+									}
+								}
+							}
+							others = new HashSet<AID>();
+							DFAgentDescription template3 = new DFAgentDescription();
+							ServiceDescription sd3 = new ServiceDescription();
+							sd3.setType("scheduling");
+							template3.addServices(sd3);
+							try {
+								DFAgentDescription[] results = DFService.search(myAgent, template3);
+								for(DFAgentDescription result : results){
+									if(!result.getName().equals(myAgent.getAID())){
+										others.add(result.getName());
+									}
+								}
+								ACLMessage msg3 = new ACLMessage(ACLMessage.CONFIRM);
+								for(AID agent: others){
+									msg3.addReceiver(agent);
+								}
+								msg3.setConversationId(State.COST_GATHERING.toString());
+								myAgent.send(msg3);
+								state = State.COST_GATHERING;
+							} catch (FIPAException fe) {
+								fe.printStackTrace();
+							}
+						} catch (NullPointerException e) {
+							e.printStackTrace();
 						}
-						others = new HashSet<AID>();
-						DFAgentDescription template3 = new DFAgentDescription();
-					    ServiceDescription sd3 = new ServiceDescription();
-					    sd3.setType("scheduling");
-					    template3.addServices(sd3);
-					    try {
-					    	DFAgentDescription[] results = DFService.search(myAgent, template3);
-					    	for(DFAgentDescription result : results){
-					    		if(!result.getName().equals(myAgent.getAID())){
-					    			others.add(result.getName());
-					    		}
-					    	}
-					    	ACLMessage msg3 = new ACLMessage(ACLMessage.CONFIRM);
-					    	for(AID agent: others){
-					    		msg3.addReceiver(agent);
-					    	}
-					    	msg3.setConversationId(State.COST_GATHERING.toString());
-					    	myAgent.send(msg3);
-							state = State.COST_GATHERING;
-					    } catch (FIPAException fe) {
-					    	fe.printStackTrace();
-					    }
 						break;
 					case COST_GATHERING:
-						if(others.isEmpty()){
-							state = State.BUILD_DFS;
-							break;
-						}
-						
-						ACLMessage msg4 = myAgent.receive(
-								MessageTemplate.and(
-										MessageTemplate.MatchPerformative(ACLMessage.CONFIRM), 
-										MessageTemplate.MatchConversationId(State.COST_GATHERING.toString())));
-						if (msg4 != null){
-							others.remove(msg4.getSender());
-						} else {
-							block();
+						try {
+							if(others.isEmpty()){
+								state = State.BUILD_DFS;
+								break;
+							}
+							
+							ACLMessage msg4 = myAgent.receive(
+									MessageTemplate.and(
+											MessageTemplate.MatchPerformative(ACLMessage.CONFIRM), 
+											MessageTemplate.MatchConversationId(State.COST_GATHERING.toString())));
+							if (msg4 != null){
+								others.remove(msg4.getSender());
+							} else {
+								block();
+							}
+						} catch (NullPointerException e) {
+							e.printStackTrace();
 						}
 						break;
 					case BUILD_DFS:
-						List<Integer> priorityArr = new ArrayList<Integer>();
-						priorityArr.addAll(priority.values());
-						Collections.sort(priorityArr);
-						Collections.reverse(priorityArr);
-						
-						AID[] agentOrd = new AID[priority.keySet().size()];
-						
-						int j=0;
-						for(int i=0; i<priorityArr.size(); i++){
-							int curr=priorityArr.get(i);
-							for(Entry<AID, Integer> val : priority.entrySet()){
-								if(val.getValue().equals(curr)){
-									agentOrd[j] = val.getKey();
-									j++;
+						try {
+							List<Integer> priorityArr = new ArrayList<Integer>();
+							priorityArr.addAll(priority.values());
+							Collections.sort(priorityArr);
+							Collections.reverse(priorityArr);
+							
+							AID[] agentOrd = new AID[priority.keySet().size()];
+							
+							int j=0;
+							for(int i=0; i<priorityArr.size(); i++){
+								int curr=priorityArr.get(i);
+								for(Entry<AID, Integer> val : priority.entrySet()){
+									if(val.getValue().equals(curr)){
+										agentOrd[j] = val.getKey();
+										j++;
+									}
 								}
 							}
-						}
-						
-						for(int i=0; i<agentOrd.length; i++){
-							if(agentOrd[i].equals(myAgent.getAID())){
-								if(i==0){
-									Agent.this.parent = null;
-									Agent.this.child = agentOrd[i+1];
-								} else if(i==agentOrd.length-1) {
-									Agent.this.parent = agentOrd[i-1];
-									Agent.this.child = null;
-								} else {
-									Agent.this.parent = agentOrd[i-1];
-									Agent.this.child = agentOrd[i+1];
+							
+							for(int i=0; i<agentOrd.length; i++){
+								if(agentOrd[i].equals(myAgent.getAID())){
+									if(i==0){
+										Agent.this.parent = null;
+										Agent.this.child = agentOrd[i+1];
+									} else if(i==agentOrd.length-1) {
+										Agent.this.parent = agentOrd[i-1];
+										Agent.this.child = null;
+									} else {
+										Agent.this.parent = agentOrd[i-1];
+										Agent.this.child = agentOrd[i+1];
+									}
 								}
 							}
+							state = State.ADOPT_INIT;
+						} catch (NullPointerException e) {
+							e.printStackTrace();
 						}
-						state = State.ADOPT_INIT;
 						break;
 					case ADOPT_INIT:
-						for(int i=8; i<18; i++){
-							lb.put(i, 0.0);
-							ub.put(i, Double.POSITIVE_INFINITY);
-							t.put(i, 0.0);
-							context.put(i, new HashMap<AID, Integer>());
+						try {
+							for(int i=8; i<18; i++){
+								lb.put(i, 0.0);
+								ub.put(i, Double.POSITIVE_INFINITY);
+								t.put(i, 0.0);
+								context.put(i, new HashMap<AID, Integer>());
+							}
+							backTrack();
+							state = State.ADOPT;
+						} catch (NullPointerException e) {
+							e.printStackTrace();
 						}
-						backTrack();
-						state = State.ADOPT;
 						break;
 					case ADOPT:
 						break;
 					}
-				} catch (Throwable e) {
-					e.printStackTrace();
-				}
 			}
 			
 			@Override
@@ -389,23 +405,27 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchPerformative(ACLMessage.INFORM), 
 								MessageTemplate.MatchConversationId(State.COST_PROPAGATION.toString())));
 				if (msg != null){
-					String[] content = msg.getContent().split(":");
-					String key = content[0];
-					Integer value = Integer.valueOf(content[1]);
-					
-					DFAgentDescription template = new DFAgentDescription();
-			        ServiceDescription sd = new ServiceDescription();
-			        sd.setType("scheduling");
-			        sd.setName(key);
-			        template.addServices(sd);
-			        try {
-			        	DFAgentDescription[] results = DFService.search(myAgent, template);
-			        	if(results.length != 0){
-			        		costs.put(results[0].getName(), costs.containsKey(results[0].getName())?costs.get(results[0].getName())+value:value);
-			        	}
-			        } catch (FIPAException fe) {
-			        	fe.printStackTrace();
-			        }
+					try {
+						String[] content = msg.getContent().split(":");
+						String key = content[0];
+						Integer value = Integer.valueOf(content[1]);
+						
+						DFAgentDescription template = new DFAgentDescription();
+						ServiceDescription sd = new ServiceDescription();
+						sd.setType("scheduling");
+						sd.setName(key);
+						template.addServices(sd);
+						try {
+							DFAgentDescription[] results = DFService.search(myAgent, template);
+							if(results.length != 0){
+								costs.put(results[0].getName(), costs.containsKey(results[0].getName())?costs.get(results[0].getName())+value:value);
+							}
+						} catch (FIPAException fe) {
+							fe.printStackTrace();
+						}
+					} catch (NullPointerException e) {
+						e.printStackTrace();
+					}
 				} else {
 					block();
 				}
@@ -427,7 +447,11 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchPerformative(ACLMessage.INFORM), 
 								MessageTemplate.MatchConversationId(State.BUILD_DFS.toString())));
 				if (msg != null){
-					priority.put(msg.getSender(), Integer.valueOf(msg.getContent()));
+					try {
+						priority.put(msg.getSender(), Integer.valueOf(msg.getContent()));
+					} catch (NullPointerException e) {
+						e.printStackTrace();
+					}
 				} else {
 					block();
 				}
@@ -448,17 +472,21 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
 								MessageTemplate.MatchConversationId("VALUE")));
 				if (msg != null){
-					if(!terminate){
-						currentContext.put(msg.getSender(), Integer.valueOf(msg.getContent()));
-						checkIncompatiblity();
-						double tmpUB = UB();
-						double tmpLB = LB();
-						if(threshold>tmpUB){
-							threshold = tmpUB;
-						} else if(threshold<tmpLB) {
-							threshold = tmpLB;
+					try {
+						if(!terminate){
+							currentContext.put(msg.getSender(), Integer.valueOf(msg.getContent()));
+							checkIncompatiblity();
+							double tmpUB = UB();
+							double tmpLB = LB();
+							if(threshold>tmpUB){
+								threshold = tmpUB;
+							} else if(threshold<tmpLB) {
+								threshold = tmpLB;
+							}
+							backTrack();
 						}
-						backTrack();
+					} catch (NullPointerException e) {
+						e.printStackTrace();
 					}
 				} else {
 					block();
@@ -480,50 +508,54 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
 								MessageTemplate.MatchConversationId("COST")));
 				if (msg != null){
-					String[] contents = msg.getContent().split(";",4);
-					String[] contextFields = contents[3].split(",");
-					Map<AID,Integer> ctxMsg = new HashMap<AID,Integer>();
-					for(String contextField:contextFields){
-						if(contextField==null || contextField.isEmpty()){
-							break;
-						}
-						String[] parts = contextField.split(":");
-						try {
-							AID aid = (AID) fromString(parts[0]);
-							Integer val = Integer.valueOf(parts[1]);
-							ctxMsg.put(aid, val);
-						} catch (ClassNotFoundException e) {
-							e.printStackTrace();
-						} catch (IOException e) {
-							e.printStackTrace();
-						}
-					}
-					Double lbMsg = Double.valueOf(contents[1]);
-					Double ubMsg = Double.valueOf(contents[2]);
-					Integer dCtx = ctxMsg.get(myAgent.getAID());
-					ctxMsg.remove(myAgent.getAID());
-					if(!terminate){
-						for(Entry<AID, Integer> c:ctxMsg.entrySet()){
-							if(!costs.containsKey(c.getKey())){
-								currentContext.put(c.getKey(), c.getValue());
+					try {
+						String[] contents = msg.getContent().split(";",4);
+						String[] contextFields = contents[3].split(",");
+						Map<AID,Integer> ctxMsg = new HashMap<AID,Integer>();
+						for(String contextField:contextFields){
+							if(contextField==null || contextField.isEmpty()){
+								break;
+							}
+							String[] parts = contextField.split(":");
+							try {
+								AID aid = (AID) fromString(parts[0]);
+								Integer val = Integer.valueOf(parts[1]);
+								ctxMsg.put(aid, val);
+							} catch (ClassNotFoundException e) {
+								e.printStackTrace();
+							} catch (IOException e) {
+								e.printStackTrace();
 							}
 						}
-						checkIncompatiblity();
+						Double lbMsg = Double.valueOf(contents[1]);
+						Double ubMsg = Double.valueOf(contents[2]);
+						Integer dCtx = ctxMsg.get(myAgent.getAID());
+						ctxMsg.remove(myAgent.getAID());
+						if(!terminate){
+							for(Entry<AID, Integer> c:ctxMsg.entrySet()){
+								if(!costs.containsKey(c.getKey())){
+									currentContext.put(c.getKey(), c.getValue());
+								}
+							}
+							checkIncompatiblity();
+						}
+						if(isCompatibleWithCurrentContext(ctxMsg)){
+							lb.put(dCtx, lbMsg);
+							ub.put(dCtx, ubMsg);
+							context.put(dCtx, ctxMsg);
+						}
+						double tmpUB = UB();
+						double tmpLB = LB();
+						if(threshold>tmpUB){
+							threshold = tmpUB;
+						} else if(threshold<tmpLB) {
+							threshold = tmpLB;
+						}
+						checkChildThresholdInvariant();
+						backTrack();
+					} catch (NullPointerException e) {
+						e.printStackTrace();
 					}
-					if(isCompatibleWithCurrentContext(ctxMsg)){
-						lb.put(dCtx, lbMsg);
-						ub.put(dCtx, ubMsg);
-						context.put(dCtx, ctxMsg);
-					}
-					double tmpUB = UB();
-					double tmpLB = LB();
-					if(threshold>tmpUB){
-						threshold = tmpUB;
-					} else if(threshold<tmpLB) {
-						threshold = tmpLB;
-					}
-					checkChildThresholdInvariant();
-					backTrack();
 				} else {
 					block();
 				}
@@ -544,8 +576,12 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
 								MessageTemplate.MatchConversationId("TERMINATE")));
 				if (msg != null){
-					terminate = true;
-					backTrack();
+					try {
+						terminate = true;
+						backTrack();
+					} catch (NullPointerException e) {
+						e.printStackTrace();
+					}
 				} else {
 					block();
 				}
@@ -566,35 +602,39 @@ public class Agent extends jade.core.Agent {
 								MessageTemplate.MatchPerformative(ACLMessage.PROPAGATE), 
 								MessageTemplate.MatchConversationId("THRESHOLD")));
 				if (msg != null){
-					String[] contents = msg.getContent().split(";",2);
-					String[] contextFields = contents[1].split(",");
-					Map<AID,Integer> context = new HashMap<AID,Integer>();
-					for(String contextField:contextFields){
-						if(contextField==null || contextField.isEmpty()){
-							break;
+					try {
+						String[] contents = msg.getContent().split(";",2);
+						String[] contextFields = contents[1].split(",");
+						Map<AID,Integer> context = new HashMap<AID,Integer>();
+						for(String contextField:contextFields){
+							if(contextField==null || contextField.isEmpty()){
+								break;
+							}
+							String[] parts = contextField.split(":");
+							try {
+								AID aid = (AID) fromString(parts[0]);
+								Integer val = Integer.valueOf(parts[1]);
+								context.put(aid, val);
+							} catch (ClassNotFoundException e) {
+								e.printStackTrace();
+							} catch (IOException e) {
+								e.printStackTrace();
+							}
 						}
-						String[] parts = contextField.split(":");
-						try {
-							AID aid = (AID) fromString(parts[0]);
-							Integer val = Integer.valueOf(parts[1]);
-							context.put(aid, val);
-						} catch (ClassNotFoundException e) {
-							e.printStackTrace();
-						} catch (IOException e) {
-							e.printStackTrace();
+						Double msgT = Double.valueOf(contents[0]);
+						if(isCompatibleWithCurrentContext(context)){
+							threshold = msgT;
+							double tmpUB = UB();
+							double tmpLB = LB();
+							if(threshold>tmpUB){
+								threshold = tmpUB;
+							} else if(threshold<tmpLB) {
+								threshold = tmpLB;
+							}
+							backTrack();
 						}
-					}
-					Double msgT = Double.valueOf(contents[0]);
-					if(isCompatibleWithCurrentContext(context)){
-						threshold = msgT;
-						double tmpUB = UB();
-						double tmpLB = LB();
-						if(threshold>tmpUB){
-							threshold = tmpUB;
-						} else if(threshold<tmpLB) {
-							threshold = tmpLB;
-						}
-						backTrack();
+					} catch (NullPointerException e) {
+						e.printStackTrace();
 					}
 				} else {
 					block();
